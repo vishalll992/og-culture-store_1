@@ -10,6 +10,7 @@ app.use(express.static('public'));
 const url = process.env.DATABASE_URL;
 const pool = new Pool({
   connectionString: url,
+  max: 3,
   ssl: url && !/localhost|127\.0\.0\.1/.test(url) ? { rejectUnauthorized: false } : false,
 });
 const SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
@@ -51,6 +52,12 @@ function auth(req, res, next) {
   catch { res.status(401).json({ error: 'Please log in' }); }
 }
 const admin = (req, res, next) => req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Admins only' });
+
+let ready;
+app.use('/api', async (req, res, next) => {
+  try { await (ready = ready || init()); next(); }
+  catch (e) { ready = null; console.error('DB init failed:', e.message); res.status(500).json({ error: 'Database unavailable' }); }
+});
 
 // ---- auth
 app.post('/api/signup', wrap(async (req, res) => {
@@ -130,6 +137,9 @@ app.get('/api/admin/stats', auth, admin, wrap(async (req, res) => {
   res.json(r.rows[0]);
 }));
 
-const port = process.env.PORT || 3000;
-init().then(() => app.listen(port, () => console.log('OG CULTURE running on :' + port)))
-  .catch(e => { console.error('DB init failed:', e.message); process.exit(1); });
+module.exports = app;
+if (require.main === module) {
+  const port = process.env.PORT || 3000;
+  (ready = init()).then(() => app.listen(port, () => console.log('OG CULTURE running on :' + port)))
+    .catch(e => { console.error('DB init failed:', e.message); process.exit(1); });
+}
